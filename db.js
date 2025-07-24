@@ -1,17 +1,20 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-// Use /data in production (Render), or local path for development
+// Resolve DB path for Render vs local environment
 const dbPath = process.env.NODE_ENV === 'production'
   ? '/data/submissions.db'
   : path.join(__dirname, 'submissions.db');
+
+// 👇 Debug log for Render and local dev
+console.log('📁 Using database path:', dbPath);
 
 // Connect to the database
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('❌ Error opening database:', err.message);
   } else {
-    console.log('✅ Connected to SQLite database at:', dbPath);
+    console.log('✅ Connected to SQLite database.');
 
     // Create the submissions table if it doesn't exist
     db.run(`
