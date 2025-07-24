@@ -1,0 +1,20 @@
+# Node modules
+node_modules/
+
+# SQLite DB file
+*.db
+
+# Env variables
+.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Optional: VSCode settings
+.vscode/
